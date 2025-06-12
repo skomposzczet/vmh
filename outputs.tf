@@ -10,15 +10,15 @@ output "azurerm_backup_policy_vm_name" {
   value = azurerm_backup_policy_vm.example.name
 }
 
-output "azurerm_windows_virtual_machine_name" {
-  value = azurerm_windows_virtual_machine.main.name
+output "azurerm_linux_virtual_machine_name" {
+  value = azurerm_linux_virtual_machine.vm.name
 }
 
 output "public_ip_address" {
-  value = azurerm_windows_virtual_machine.main.public_ip_address
+  value = azurerm_linux_virtual_machine.vm.public_ip_address
 }
 
-output "admin_password" {
+output "ssh_key" {
   sensitive = true
-  value     = azurerm_windows_virtual_machine.main.admin_password
+  value = tls_private_key.kv_admin
 }

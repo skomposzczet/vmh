@@ -27,23 +27,16 @@ resource "azurerm_public_ip" "my_terraform_public_ip" {
   allocation_method   = "Dynamic"
 }
 
+data "http" "myip"{
+  url = "https://api.ipify.org/"
+}
+
 # Create Network Security Group and rules
 resource "azurerm_network_security_group" "my_terraform_nsg" {
   name                = "${var.project_name}-nsg"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
-  security_rule {
-    name                       = "RDP"
-    priority                   = 1000
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "*"
-    source_port_range          = "*"
-    destination_port_range     = "3389"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
   security_rule {
     name                       = "web"
     priority                   = 1001
@@ -55,6 +48,106 @@ resource "azurerm_network_security_group" "my_terraform_nsg" {
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
+
+  security_rule {
+    name                       = "ssh"
+    priority                   = 1001
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = "${chomp(data.http.myip.response_body)}"
+    destination_address_prefix = "*"
+  }
+}
+
+
+#Azure Firewall Instance
+resource "azurerm_firewall" "region1-fw01" {
+  name                = "region1-fw01"
+  location            = var.resource_group_location
+  resource_group_name = azurerm_resource_group.rg.name
+  sku_tier = "Premium"
+  sku_name = "AZFW_VNet"
+  ip_configuration {
+    name                 = "fw-ipconfig"
+    subnet_id            = azurerm_subnet.my_terraform_subnet.id
+    public_ip_address_id = azurerm_public_ip.my_terraform_public_ip.id
+  }
+}
+
+#Firewall Policy
+resource "azurerm_firewall_policy" "region1-fw-pol01" {
+  name                = "region1-firewall-policy01"
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = var.resource_group_location
+}
+
+# Firewall Policy Rules
+resource "azurerm_firewall_policy_rule_collection_group" "region1-policy1" {
+  name               = "region1-policy1"
+  firewall_policy_id = azurerm_firewall_policy.region1-fw-pol01.id
+  priority           = 100
+
+  application_rule_collection {
+    name     = "blocked_websites1"
+    priority = 500
+    action   = "Deny"
+    rule {
+      name = "dodgy_website"
+      protocols {
+        type = "Http"
+        port = 80
+      }
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses  = ["*"]
+      destination_fqdns  = ["*"]
+    }
+  }
+
+
+  application_rule_collection {
+    name     = "allowed_websites"
+    priority = 200
+    action   = "Allow"
+    dynamic "rule" {
+      # for_each = {
+      #for index, site in var.allowed_sites: 
+      #site.name => site 
+      #}
+      for_each = var.allowed_sites
+      content {
+        name = "cool_website_${rule.value.name}"
+        protocols {
+          type = "Http"
+          port = 80
+        }
+        protocols {
+          type = "Https"
+          port = 443
+        }
+        source_addresses  = ["*"]
+        destination_fqdns  = ["${rule.value.ip}"]
+      }
+    }
+  }
+
+  #network_rule_collection {
+  # name     = "network_rules1"
+  # priority = 400
+  # action   = "Allow"
+  # rule {
+  #   name                  = "network_rule_collection1_rule1"
+  #   protocols             = ["TCP", "UDP"]
+  #   source_addresses      = ["*"]
+  #   destination_addresses = ["192.168.1.1", "192.168.1.2"]
+  #   destination_ports     = ["80", "8000-8080"]
+  # }
+  # }
 }
 
 # Create network interface
@@ -105,13 +198,6 @@ resource "azurerm_key_vault" "kv" {
     }
 }
 
-resource "azurerm_key_vault_secret" "kv" {
-    for_each                        =       var.kv_secrets
-    name                            =       each.key
-    key_vault_id                    =       azurerm_key_vault.kv.id
-    value                           =       each.value
-}
-
 resource "azurerm_key_vault_key" "kv" {
     name                            =       "${var.project_name}-vm-ade-kek"
     key_vault_id                    =       azurerm_key_vault.kv.id
@@ -120,14 +206,15 @@ resource "azurerm_key_vault_key" "kv" {
     key_opts                        =       ["decrypt", "encrypt", "sign", "unwrapKey", "verify", "wrapKey",]
 }
 
-resource "azurerm_key_vault_key" "kv-admin" {
-    name                            =       "${var.project_name}-vm-admin-kek"
-    key_vault_id                    =       azurerm_key_vault.kv.id
-    key_type                        =       "RSA"
-    key_size                        =       2048
-    key_opts                        =       ["decrypt", "encrypt", "sign", "unwrapKey", "verify", "wrapKey",]
+resource "tls_private_key" "kv_admin" {
+    algorithm = "RSA"
+    rsa_bits = 4096
 }
 
+resource "local_file" "private_key" { 
+  content = tls_private_key.kv_admin.private_key_pem
+  filename = pathexpand("./.ssh/vm1")
+}
 
 resource "azurerm_linux_virtual_machine" "vm" {
     name                              =     "${var.project_name}-linux-vm"
@@ -136,10 +223,14 @@ resource "azurerm_linux_virtual_machine" "vm" {
     network_interface_ids             =     [azurerm_network_interface.my_terraform_nic.id]
     size                              =     "Standard_DS1_v2"
     computer_name                     =     "linux-vm"
-    admin_username                    =     azurerm_key_vault_secret.kv["linuxvm-username"].value
-    admin_ssh_key                     =     azurerm_key_vault_key.kv-admin.public
-    disable_password_authentication   =     false
+    admin_username                    =     "azureuser" 
+    disable_password_authentication   =     true
     allow_extension_operations        =     true
+
+    admin_ssh_key {
+        username = "azureuser"
+        public_key = tls_private_key.kv_admin.public_key_openssh 
+    }
 
     os_disk  {
         name                          =     "${var.project_name}-vm-os-disk"
@@ -159,6 +250,27 @@ resource "azurerm_linux_virtual_machine" "vm" {
     storage_account_uri = azurerm_storage_account.my_storage_account.primary_blob_endpoint
   }
 }
+resource "azurerm_virtual_machine_extension" "linux-ade" {
+    name                              =     "AzureDiskEncryption"
+    virtual_machine_id                =     azurerm_linux_virtual_machine.vm.id
+    publisher                         =     "Microsoft.Azure.Security"
+    type                              =     "AzureDiskEncryptionForLinux"
+    type_handler_version              =     "1.1"
+    auto_upgrade_minor_version        =     true
+
+    settings = <<SETTINGS
+    {
+        "EncryptionOperation"         :     "EnableEncryption",
+        "KeyVaultURL"                 :     "${azurerm_key_vault.kv.vault_uri}",
+        "KeyVaultResourceId"          :     "${azurerm_key_vault.kv.id}",
+        "KeyEncryptionKeyURL"         :     "${azurerm_key_vault_key.kv.id}",
+        "KekVaultResourceId"          :     "${azurerm_key_vault.kv.id}",
+        "KeyEncryptionAlgorithm"      :     "RSA-OAEP",
+        "VolumeType"                  :     "All"
+    }
+    SETTINGS
+    depends_on                        =     [azurerm_linux_virtual_machine.vm]
+}
 
 # Generate random text for a unique storage account name
 resource "random_id" "random_id" {
@@ -169,15 +281,6 @@ resource "random_id" "random_id" {
 
   byte_length = 8
 }
-
-#resource "random_password" "password" {
-#  length      = 20
-#  min_lower   = 1
-#  min_upper   = 1
-#  min_numeric = 1
-#  min_special = 1
-#  special     = true
-#}
 
 resource "azurerm_recovery_services_vault" "example" {
   name                = "${var.project_name}-vault"
@@ -205,6 +308,6 @@ resource "azurerm_backup_policy_vm" "example" {
 resource "azurerm_backup_protected_vm" "example" {
   resource_group_name = azurerm_resource_group.rg.name
   recovery_vault_name = azurerm_recovery_services_vault.example.name
-  source_vm_id        = azurerm_windows_virtual_machine.main.id
+  source_vm_id        = azurerm_linux_virtual_machine.vm.id
   backup_policy_id    = azurerm_backup_policy_vm.example.id
 }

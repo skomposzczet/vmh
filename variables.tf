@@ -17,4 +17,21 @@ variable "project_name"{
   description = "General project name."
 }
 
+locals {
+    kv_key_permissions      =       ["Create", "Delete", "Get", "List", "Import", "Encrypt", "Decrypt", "Recover", "WrapKey", "UnwrapKey", "Verify", "Sign", "Restore", "Purge", "Update", "Backup",]
+    kv_secret_permissions   =       ["Backup", "Delete", "Get", "List", "Purge", "Recover", "Restore", "Set",]
+}
 
+variable "allowed_sites" {
+  type = list(object({
+    name = string
+    ip = string
+  }))
+
+  default = [
+    {
+      name = "bestiaZwadowic2137"
+      ip = "https://janpawel2.pl/"
+    }
+  ]
+} 

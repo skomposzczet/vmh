@@ -1,0 +1,4 @@
+.direnv
+.ssh
+.terraform*
+terraform.tfstate
