@@ -31,7 +31,7 @@ variable "allowed_sites" {
   default = [
     {
       name = "bestiaZwadowic2137"
-      ip = "https://janpawel2.pl/"
+      ip = "janpawel2.pl"
     }
   ]
 } 

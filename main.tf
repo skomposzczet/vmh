@@ -13,7 +13,7 @@ resource "azurerm_virtual_network" "my_terraform_network" {
 
 # Create subnet
 resource "azurerm_subnet" "my_terraform_subnet" {
-  name                 = "${var.project_name}-subnet"
+  name                 =  "AzureFirewallSubnet" 
   resource_group_name  = azurerm_resource_group.rg.name
   virtual_network_name = azurerm_virtual_network.my_terraform_network.name
   address_prefixes     = ["10.0.1.0/24"]
@@ -24,7 +24,8 @@ resource "azurerm_public_ip" "my_terraform_public_ip" {
   name                = "${var.project_name}-public-ip"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-  allocation_method   = "Dynamic"
+  allocation_method   = "Static"
+  sku = "Standard"
 }
 
 data "http" "myip"{
@@ -51,7 +52,7 @@ resource "azurerm_network_security_group" "my_terraform_nsg" {
 
   security_rule {
     name                       = "ssh"
-    priority                   = 1001
+    priority                   = 1000
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
@@ -63,19 +64,7 @@ resource "azurerm_network_security_group" "my_terraform_nsg" {
 }
 
 
-#Azure Firewall Instance
-resource "azurerm_firewall" "region1-fw01" {
-  name                = "region1-fw01"
-  location            = var.resource_group_location
-  resource_group_name = azurerm_resource_group.rg.name
-  sku_tier = "Premium"
-  sku_name = "AZFW_VNet"
-  ip_configuration {
-    name                 = "fw-ipconfig"
-    subnet_id            = azurerm_subnet.my_terraform_subnet.id
-    public_ip_address_id = azurerm_public_ip.my_terraform_public_ip.id
-  }
-}
+
 
 #Firewall Policy
 resource "azurerm_firewall_policy" "region1-fw-pol01" {
@@ -136,6 +125,20 @@ resource "azurerm_firewall_policy_rule_collection_group" "region1-policy1" {
     }
   }
 
+#Azure Firewall Instance
+resource "azurerm_firewall" "region1-fw01" {
+  name                = "region1-fw01"
+  location            = var.resource_group_location
+  resource_group_name = azurerm_resource_group.rg.name
+  sku_tier = "Premium"
+  sku_name = "AZFW_VNet"
+  firewall_policy_id = azurerm_firewall_policy.region1-fw-pol01.id
+  ip_configuration {
+    name                 = "fw-ipconfig"
+    subnet_id            = azurerm_subnet.my_terraform_subnet.id
+    public_ip_address_id = azurerm_public_ip.my_terraform_public_ip.id
+  }
+}
   #network_rule_collection {
   # name     = "network_rules1"
   # priority = 400
@@ -150,6 +153,15 @@ resource "azurerm_firewall_policy_rule_collection_group" "region1-policy1" {
   # }
 }
 
+
+resource "azurerm_public_ip" "nic_public_ip" {
+  name                = "poc-nic-public-ip"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+}
+
 # Create network interface
 resource "azurerm_network_interface" "my_terraform_nic" {
   name                = "${var.project_name}-nic"
@@ -160,7 +172,7 @@ resource "azurerm_network_interface" "my_terraform_nic" {
     name                          = "my_nic_configuration"
     subnet_id                     = azurerm_subnet.my_terraform_subnet.id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.my_terraform_public_ip.id
+    public_ip_address_id          = azurerm_public_ip.nic_public_ip.id  # ✅ use new IP
   }
 }
 
@@ -181,8 +193,15 @@ resource "azurerm_storage_account" "my_storage_account" {
 
 data "azurerm_client_config" "current" {}
 
+resource "random_integer" "random" {
+    min                             =       11111
+    max                             =       99999
+}
+
+
+
 resource "azurerm_key_vault" "kv" {
-    name                            =       "${var.project_name}--kv"
+    name                            =       "${var.project_name}-kv${random_integer.random.result}"
     resource_group_name             =       azurerm_resource_group.rg.name
     location                        =       azurerm_resource_group.rg.location
     enabled_for_deployment          =       true
@@ -190,20 +209,55 @@ resource "azurerm_key_vault" "kv" {
     tenant_id                       =       data.azurerm_client_config.current.tenant_id
     sku_name                        =       "standard"
 
-    access_policy  {
-        tenant_id                   =       data.azurerm_client_config.current.tenant_id
-        object_id                   =       data.azurerm_client_config.current.object_id
-        key_permissions             =       local.kv_key_permissions
-        secret_permissions          =       local.kv_secret_permissions
-    }
+  access_policy  {
+    tenant_id                   =       data.azurerm_client_config.current.tenant_id
+    object_id                   =       data.azurerm_client_config.current.object_id
+    #key_permissions             =       local.kv_key_permissions
+    #secret_permissions          =       local.kv_secret_permissions
+    key_permissions = [
+      "Create",
+      "Delete",
+      "Get",
+      "Purge",
+      "Recover",
+      "Update",
+      "GetRotationPolicy",
+      "SetRotationPolicy"
+    ]
+
+    secret_permissions = [
+      "Set",
+    ]
+
+  }
 }
+
+
+
 
 resource "azurerm_key_vault_key" "kv" {
     name                            =       "${var.project_name}-vm-ade-kek"
     key_vault_id                    =       azurerm_key_vault.kv.id
     key_type                        =       "RSA"
     key_size                        =       2048
-    key_opts                        =       ["decrypt", "encrypt", "sign", "unwrapKey", "verify", "wrapKey",]
+  #    key_opts                        =       ["decrypt", "encrypt", "sign", "unwrapKey", "verify", "wrapKey",]
+    key_opts = [
+    "decrypt",
+    "encrypt",
+    "sign",
+    "unwrapKey",
+    "verify",
+    "wrapKey",
+  ]
+
+  rotation_policy {
+    automatic {
+      time_before_expiry = "P30D"
+    }
+
+    expire_after         = "P90D"
+    notify_before_expiry = "P29D"
+  }
 }
 
 resource "tls_private_key" "kv_admin" {
