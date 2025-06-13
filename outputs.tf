@@ -20,5 +20,5 @@ output "public_ip_address" {
 
 output "ssh_key" {
   sensitive = true
-  value = tls_private_key.kv_admin
+  value     = tls_private_key.kv_admin
 }
