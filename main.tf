@@ -88,7 +88,7 @@ resource "azurerm_network_interface" "jump_nic" {
 
   ip_configuration {
     name                          = "my_nic_configuration"
-    subnet_id                     = azurerm_subnet.subnet_vm.id
+    subnet_id                     = azurerm_subnet.subnet_jump.id
     private_ip_address_allocation = "Dynamic"
     public_ip_address_id          = azurerm_public_ip.jump_public_ip.id
   }
@@ -99,6 +99,18 @@ resource "azurerm_network_security_group" "vm_nsg" {
   name                = "${var.project_name}-nsg"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
+
+  security_rule {
+    name                       = "web"
+    priority                   = 1001
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "80"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
 
   security_rule {
     name                       = "ssh"
@@ -141,18 +153,6 @@ resource "azurerm_network_security_group" "jump_nsg" {
     source_address_prefix      = chomp(data.http.user_ip.response_body)
     destination_address_prefix = "*"
   }
-
-  security_rule {
-    name                       = "sshout"
-    priority                   = 1000
-    direction                  = "Outbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "22"
-    source_address_prefix      = "*"
-    destination_address_prefix = "10.10.1.5"
-  }
 }
 
 resource "azurerm_network_interface_security_group_association" "vm_nic_nsg" {
@@ -178,24 +178,24 @@ resource "azurerm_firewall_policy_rule_collection_group" "region1-policy1" {
   firewall_policy_id = azurerm_firewall_policy.region1-fw-pol01.id
   priority           = 100
 
-  application_rule_collection {
-    name     = "blocked_websites1"
-    priority = 500
-    action   = "Deny"
-    rule {
-      name = "dodgy_website"
-      protocols {
-        type = "Http"
-        port = 80
-      }
-      protocols {
-        type = "Https"
-        port = 443
-      }
-      source_addresses  = ["*"]
-      destination_fqdns = ["*"]
-    }
-  }
+  # application_rule_collection {
+  #   name     = "blocked_websites1"
+  #   priority = 500
+  #   action   = "Deny"
+  #   rule {
+  #     name = "dodgy_website"
+  #     protocols {
+  #       type = "Http"
+  #       port = 80
+  #     }
+  #     protocols {
+  #       type = "Https"
+  #       port = 443
+  #     }
+  #     source_addresses  = ["*"]
+  #     destination_fqdns = ["*"]
+  #   }
+  # }
 
   application_rule_collection {
     name     = "allowed_websites"
@@ -255,7 +255,7 @@ resource "azurerm_route_table" "rt" {
   resource_group_name = azurerm_resource_group.rg.name
   route {
     name                   = "rout1"
-    address_prefix          = "10.10.1.0/24"
+    address_prefix          = "0.0.0.0/0"
     next_hop_type          = "VirtualAppliance"
     next_hop_in_ip_address = azurerm_firewall.region1-fw01.ip_configuration[0].private_ip_address
   }
