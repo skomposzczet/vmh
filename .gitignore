@@ -1,4 +1,4 @@
 .direnv
 .ssh
 .terraform*
-terraform.tfstate
+terraform.tfstate*
