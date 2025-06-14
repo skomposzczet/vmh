@@ -99,6 +99,18 @@ resource "azurerm_network_security_group" "vm_nsg" {
   name                = "${var.project_name}-nsg"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
+
+  security_rule {
+    name                       = "ssh"
+    priority                   = 1000
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = "10.0.0.0/8"
+    destination_address_prefix = "*"
+  }
 }
 
 resource "azurerm_network_security_group" "jump_nsg" {
@@ -129,6 +141,18 @@ resource "azurerm_network_security_group" "jump_nsg" {
     source_address_prefix      = chomp(data.http.user_ip.response_body)
     destination_address_prefix = "*"
   }
+
+  security_rule {
+    name                       = "sshout"
+    priority                   = 1000
+    direction                  = "Outbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = "*"
+    destination_address_prefix = "10.10.1.5"
+  }
 }
 
 resource "azurerm_network_interface_security_group_association" "vm_nic_nsg" {
@@ -141,92 +165,106 @@ resource "azurerm_network_interface_security_group_association" "jump_nic_nsg" {
   network_security_group_id = azurerm_network_security_group.jump_nsg.id
 }
 
-# #Firewall Policy
-# resource "azurerm_firewall_policy" "region1-fw-pol01" {
-#   name                = "region1-firewall-policy01"
-#   resource_group_name = azurerm_resource_group.rg.name
-#   location            = var.resource_group_location
-# }
-#
-# # Firewall Policy Rules
-# resource "azurerm_firewall_policy_rule_collection_group" "region1-policy1" {
-#   name               = "region1-policy1"
-#   firewall_policy_id = azurerm_firewall_policy.region1-fw-pol01.id
-#   priority           = 100
-#
-#   application_rule_collection {
-#     name     = "blocked_websites1"
-#     priority = 500
-#     action   = "Deny"
-#     rule {
-#       name = "dodgy_website"
-#       protocols {
-#         type = "Http"
-#         port = 80
-#       }
-#       protocols {
-#         type = "Https"
-#         port = 443
-#       }
-#       source_addresses  = ["*"]
-#       destination_fqdns = ["*"]
-#     }
-#   }
-#
-#
-#   application_rule_collection {
-#     name     = "allowed_websites"
-#     priority = 200
-#     action   = "Allow"
-#     dynamic "rule" {
-#       for_each = var.allowed_sites
-#       content {
-#         name = "cool_website_${rule.value.name}"
-#         protocols {
-#           type = "Http"
-#           port = 80
-#         }
-#         protocols {
-#           type = "Https"
-#           port = 443
-#         }
-#         source_addresses  = ["*"]
-#         destination_fqdns = ["${rule.value.ip}"]
-#       }
-#     }
-#   }
-# }
-# #Azure Firewall Instance
-# resource "azurerm_firewall" "region1-fw01" {
-#   name                = "region1-fw01"
-#   location            = var.resource_group_location
-#   resource_group_name = azurerm_resource_group.rg.name
-#   sku_tier            = "Premium"
-#   sku_name            = "AZFW_VNet"
-#   firewall_policy_id  = azurerm_firewall_policy.region1-fw-pol01.id
-#   ip_configuration {
-#     name                 = "fw-ipconfig"
-#     subnet_id            = azurerm_subnet.subnet_fire_wall.id
-#     public_ip_address_id = azurerm_public_ip.firewall_public_ip.id
-#   }
-# }
-#
-# resource "azurerm_route_table" "rt" {
-#   name                = "${var.project_name}-route-table"
-#   location            = azurerm_resource_group.rg.location
-#   resource_group_name = azurerm_resource_group.rg.name
-#   route {
-#     name                   = "rout1"
-#     address_prefix          = "0.0.0.0/0"
-#     next_hop_type          = "VirtualAppliance"
-#     next_hop_in_ip_address = azurerm_firewall.region1-fw01.ip_configuration[0].private_ip_address
-#   }
-# }
-#
-# resource "azurerm_subnet_route_table_association" "sn_rt_as" {
-#   subnet_id      = azurerm_subnet.subnet_vm.id
-#   route_table_id = azurerm_route_table.rt.id
-# }
+#Firewall Policy
+resource "azurerm_firewall_policy" "region1-fw-pol01" {
+  name                = "region1-firewall-policy01"
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = var.resource_group_location
+}
+
+# Firewall Policy Rules
+resource "azurerm_firewall_policy_rule_collection_group" "region1-policy1" {
+  name               = "region1-policy1"
+  firewall_policy_id = azurerm_firewall_policy.region1-fw-pol01.id
+  priority           = 100
+
+  application_rule_collection {
+    name     = "blocked_websites1"
+    priority = 500
+    action   = "Deny"
+    rule {
+      name = "dodgy_website"
+      protocols {
+        type = "Http"
+        port = 80
+      }
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses  = ["*"]
+      destination_fqdns = ["*"]
+    }
+  }
+
+  application_rule_collection {
+    name     = "allowed_websites"
+    priority = 200
+    action   = "Allow"
+    dynamic "rule" {
+      for_each = var.allowed_sites
+      content {
+        name = "cool_website_${rule.value.name}"
+        protocols {
+          type = "Http"
+          port = 80
+        }
+        protocols {
+          type = "Https"
+          port = 443
+        }
+        source_addresses  = ["*"]
+        destination_fqdns = ["${rule.value.ip}"]
+      }
+    }
+  }
+
+  nat_rule_collection {
+    name     = "AllowSSH"
+    priority = 100
+    action   = "Dnat"
+    rule {
+      name = "AllowSSH"
+      source_addresses    = ["108.142.232.35"]
+      protocols           = ["TCP"]
+      destination_ports   = ["22"]
+      destination_address = azurerm_public_ip.firewall_public_ip.ip_address
+      translated_port     = 22
+      translated_address  = azurerm_network_interface.vm_nic.private_ip_address
+    }
+  }
+}
+#Azure Firewall Instance
+resource "azurerm_firewall" "region1-fw01" {
+  name                = "region1-fw01"
+  location            = var.resource_group_location
+  resource_group_name = azurerm_resource_group.rg.name
+  sku_tier            = "Premium"
+  sku_name            = "AZFW_VNet"
+  firewall_policy_id  = azurerm_firewall_policy.region1-fw-pol01.id
+  ip_configuration {
+    name                 = "fw-ipconfig"
+    subnet_id            = azurerm_subnet.subnet_fire_wall.id
+    public_ip_address_id = azurerm_public_ip.firewall_public_ip.id
+  }
+}
+
+resource "azurerm_route_table" "rt" {
+  name                = "${var.project_name}-route-table"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  route {
+    name                   = "rout1"
+    address_prefix          = "10.10.1.0/24"
+    next_hop_type          = "VirtualAppliance"
+    next_hop_in_ip_address = azurerm_firewall.region1-fw01.ip_configuration[0].private_ip_address
+  }
+}
+
+resource "azurerm_subnet_route_table_association" "sn_rt_as" {
+  subnet_id      = azurerm_subnet.subnet_vm.id
+  route_table_id = azurerm_route_table.rt.id
+}
 
 # Create storage account for boot diagnostics
 resource "azurerm_storage_account" "my_storage_account" {
@@ -301,7 +339,7 @@ resource "tls_private_key" "kv_admin" {
 resource "local_file" "private_key" {
   content  = tls_private_key.kv_admin.private_key_pem
   filename = pathexpand("./.ssh/vm1")
-  # file_permission = "0400"
+  file_permission = "0400"
 }
 
 resource "azurerm_linux_virtual_machine" "vm" {
@@ -316,10 +354,10 @@ resource "azurerm_linux_virtual_machine" "vm" {
   disable_password_authentication = false
   allow_extension_operations      = true
 
-  # admin_ssh_key {
-  #   username   = "azureuser"
-  #   public_key = tls_private_key.kv_admin.public_key_openssh
-  # }
+  admin_ssh_key {
+    username   = "azureuser"
+    public_key = tls_private_key.kv_admin.public_key_openssh
+  }
 
   os_disk {
     name                 = "${var.project_name}-vm-os-disk"
