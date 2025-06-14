@@ -113,31 +113,31 @@ resource "azurerm_network_security_group" "jump_nsg" {
   resource_group_name = azurerm_resource_group.rg.name
 
   security_rule {
-    name                       = "web"
-    priority                   = 1001
-    direction                  = "Inbound"
+    name                       = "DenyInternet"
+    priority                   = 3000
+    direction                  = "Outbound"
     access                     = "Deny"
+    protocol                   = "*"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = "*"
+    destination_address_prefix = "Internet"
+  }
+
+  security_rule {
+    name                       = "AllowSshOut"
+    priority                   = 2000
+    direction                  = "Outbound"
+    access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
-    destination_port_range     = "80"
+    destination_port_range     = "22"
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
 
   security_rule {
-    name                       = "webs"
-    priority                   = 1002
-    direction                  = "Inbound"
-    access                     = "Deny"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "443"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
-
-  security_rule {
-    name                       = "ssh"
+    name                       = "AllowSshIn"
     priority                   = 1000
     direction                  = "Inbound"
     access                     = "Allow"
