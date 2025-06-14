@@ -3,7 +3,6 @@ resource "azurerm_resource_group" "rg" {
   name     = "${var.project_name}-rg"
 }
 
-#Virtual Network
 resource "azurerm_virtual_network" "network" {
   name                = "${var.project_name}-vnet"
   address_space       = ["10.10.0.0/16"]
@@ -11,7 +10,6 @@ resource "azurerm_virtual_network" "network" {
   resource_group_name = azurerm_resource_group.rg.name
 }
 
-#Subnet
 resource "azurerm_subnet" "subnet_fire_wall" {
   name                 = "AzureFirewallSubnet"
   resource_group_name  = azurerm_resource_group.rg.name
@@ -19,7 +17,6 @@ resource "azurerm_subnet" "subnet_fire_wall" {
   address_prefixes     = ["10.10.0.0/26"]
 }
 
-#Subnet
 resource "azurerm_subnet" "subnet_vm" {
   name                 = "${var.project_name}-subnet"
   resource_group_name  = azurerm_resource_group.rg.name
@@ -27,7 +24,6 @@ resource "azurerm_subnet" "subnet_vm" {
   address_prefixes     = ["10.10.1.0/24"]
 }
 
-#Subnet
 resource "azurerm_subnet" "subnet_jump" {
   name                 = "${var.project_name}-subnet-jump"
   resource_group_name  = azurerm_resource_group.rg.name
@@ -35,8 +31,6 @@ resource "azurerm_subnet" "subnet_jump" {
   address_prefixes     = ["10.10.2.0/24"]
 }
 
-
-# Public IPs
 resource "azurerm_public_ip" "firewall_public_ip" {
   name                = "${var.project_name}-firewall-ip"
   location            = azurerm_resource_group.rg.location
@@ -45,7 +39,6 @@ resource "azurerm_public_ip" "firewall_public_ip" {
   sku                 = "Standard"
 }
 
-# Public IPs
 resource "azurerm_public_ip" "jump_public_ip" {
   name                = "${var.project_name}-public-ip"
   location            = azurerm_resource_group.rg.location
@@ -54,20 +47,10 @@ resource "azurerm_public_ip" "jump_public_ip" {
   sku                 = "Standard"
 }
 
-# resource "azurerm_public_ip" "nic_public_ip" {
-#   name                = "poc-nic-public-ip"
-#   location            = azurerm_resource_group.rg.location
-#   resource_group_name = azurerm_resource_group.rg.name
-#   allocation_method   = "Static"
-#   sku                 = "Standard"
-# }
-
-# Active User Ip
 data "http" "user_ip" {
   url = "https://api.ipify.org/"
 }
 
-# Create network interface
 resource "azurerm_network_interface" "vm_nic" {
   name                = "${var.project_name}-nic"
   location            = azurerm_resource_group.rg.location
@@ -94,7 +77,6 @@ resource "azurerm_network_interface" "jump_nic" {
   }
 }
 
-# Network Security Group + rules
 resource "azurerm_network_security_group" "vm_nsg" {
   name                = "${var.project_name}-nsg"
   location            = azurerm_resource_group.rg.location
@@ -134,10 +116,22 @@ resource "azurerm_network_security_group" "jump_nsg" {
     name                       = "web"
     priority                   = 1001
     direction                  = "Inbound"
-    access                     = "Allow"
+    access                     = "Deny"
     protocol                   = "Tcp"
     source_port_range          = "*"
     destination_port_range     = "80"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+
+  security_rule {
+    name                       = "webs"
+    priority                   = 1002
+    direction                  = "Inbound"
+    access                     = "Deny"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "443"
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
@@ -165,37 +159,16 @@ resource "azurerm_network_interface_security_group_association" "jump_nic_nsg" {
   network_security_group_id = azurerm_network_security_group.jump_nsg.id
 }
 
-#Firewall Policy
 resource "azurerm_firewall_policy" "region1-fw-pol01" {
   name                = "region1-firewall-policy01"
   resource_group_name = azurerm_resource_group.rg.name
   location            = var.resource_group_location
 }
 
-# Firewall Policy Rules
 resource "azurerm_firewall_policy_rule_collection_group" "region1-policy1" {
   name               = "region1-policy1"
   firewall_policy_id = azurerm_firewall_policy.region1-fw-pol01.id
   priority           = 100
-
-  # application_rule_collection {
-  #   name     = "blocked_websites1"
-  #   priority = 500
-  #   action   = "Deny"
-  #   rule {
-  #     name = "dodgy_website"
-  #     protocols {
-  #       type = "Http"
-  #       port = 80
-  #     }
-  #     protocols {
-  #       type = "Https"
-  #       port = 443
-  #     }
-  #     source_addresses  = ["*"]
-  #     destination_fqdns = ["*"]
-  #   }
-  # }
 
   application_rule_collection {
     name     = "allowed_websites"
@@ -234,7 +207,7 @@ resource "azurerm_firewall_policy_rule_collection_group" "region1-policy1" {
     }
   }
 }
-#Azure Firewall Instance
+
 resource "azurerm_firewall" "region1-fw01" {
   name                = "region1-fw01"
   location            = var.resource_group_location
@@ -266,7 +239,6 @@ resource "azurerm_subnet_route_table_association" "sn_rt_as" {
   route_table_id = azurerm_route_table.rt.id
 }
 
-# Create storage account for boot diagnostics
 resource "azurerm_storage_account" "my_storage_account" {
   name                     = "diag${random_id.random_id.hex}"
   location                 = azurerm_resource_group.rg.location
@@ -282,54 +254,54 @@ resource "random_integer" "random" {
   max = 99999
 }
 
-# resource "azurerm_key_vault" "kv" {
-#   name                        = "${var.project_name}-kv${random_integer.random.result}"
-#   resource_group_name         = azurerm_resource_group.rg.name
-#   location                    = azurerm_resource_group.rg.location
-#   enabled_for_deployment      = true
-#   enabled_for_disk_encryption = true
-#   tenant_id                   = data.azurerm_client_config.current.tenant_id
-#   sku_name                    = "standard"
-#   access_policy {
-#     tenant_id = data.azurerm_client_config.current.tenant_id
-#     object_id = data.azurerm_client_config.current.object_id
-#     key_permissions = [
-#       "Create",
-#       "Delete",
-#       "Get",
-#       "Purge",
-#       "Recover",
-#       "Update",
-#       "GetRotationPolicy",
-#       "SetRotationPolicy"
-#     ]
-#     secret_permissions = [
-#       "Set",
-#     ]
-#   }
-# }
-#
-# resource "azurerm_key_vault_key" "kv" {
-#   name         = "${var.project_name}-vm-ade-kek"
-#   key_vault_id = azurerm_key_vault.kv.id
-#   key_type     = "RSA"
-#   key_size     = 2048
-#   key_opts = [
-#     "decrypt",
-#     "encrypt",
-#     "sign",
-#     "unwrapKey",
-#     "verify",
-#     "wrapKey",
-#   ]
-#   rotation_policy {
-#     automatic {
-#       time_before_expiry = "P30D"
-#     }
-#     expire_after         = "P90D"
-#     notify_before_expiry = "P29D"
-#   }
-# }
+resource "azurerm_key_vault" "kv" {
+  name                        = "${var.project_name}-kv${random_integer.random.result}"
+  resource_group_name         = azurerm_resource_group.rg.name
+  location                    = azurerm_resource_group.rg.location
+  enabled_for_deployment      = true
+  enabled_for_disk_encryption = true
+  tenant_id                   = data.azurerm_client_config.current.tenant_id
+  sku_name                    = "standard"
+  access_policy {
+    tenant_id = data.azurerm_client_config.current.tenant_id
+    object_id = data.azurerm_client_config.current.object_id
+    key_permissions = [
+      "Create",
+      "Delete",
+      "Get",
+      "Purge",
+      "Recover",
+      "Update",
+      "GetRotationPolicy",
+      "SetRotationPolicy"
+    ]
+    secret_permissions = [
+      "Set",
+    ]
+  }
+}
+
+resource "azurerm_key_vault_key" "kv" {
+  name         = "${var.project_name}-vm-ade-kek"
+  key_vault_id = azurerm_key_vault.kv.id
+  key_type     = "RSA"
+  key_size     = 2048
+  key_opts = [
+    "decrypt",
+    "encrypt",
+    "sign",
+    "unwrapKey",
+    "verify",
+    "wrapKey",
+  ]
+  rotation_policy {
+    automatic {
+      time_before_expiry = "P30D"
+    }
+    expire_after         = "P90D"
+    notify_before_expiry = "P29D"
+  }
+}
 
 resource "tls_private_key" "kv_admin" {
   algorithm = "RSA"
@@ -409,13 +381,11 @@ resource "azurerm_linux_virtual_machine" "jump" {
     version   = "latest"
   }
 
-  # boot_diagnostics {
-  #   storage_account_uri = azurerm_storage_account.my_storage_account.primary_blob_endpoint
-  # }
+  boot_diagnostics {
+    storage_account_uri = azurerm_storage_account.my_storage_account.primary_blob_endpoint
+  }
 }
 
-
-# Generate random text for a unique storage account name
 resource "random_id" "random_id" {
   keepers = {
     resource_group = azurerm_resource_group.rg.name
@@ -423,52 +393,52 @@ resource "random_id" "random_id" {
   byte_length = 8
 }
 
-# resource "azurerm_virtual_machine_extension" "linux-ade" {
-#   name                       = "AzureDiskEncryption"
-#   virtual_machine_id         = azurerm_linux_virtual_machine.vm.id
-#   publisher                  = "Microsoft.Azure.Security"
-#   type                       = "AzureDiskEncryptionForLinux"
-#   type_handler_version       = "1.1"
-#   auto_upgrade_minor_version = true
-#
-#   settings   = <<SETTINGS
-#   {
-#   "EncryptionOperation"         :     "EnableEncryption",
-#   "KeyVaultURL"                 :     "${azurerm_key_vault.kv.vault_uri}",
-#   "KeyVaultResourceId"          :     "${azurerm_key_vault.kv.id}",
-#   "KeyEncryptionKeyURL"         :     "${azurerm_key_vault_key.kv.id}",
-#   "KekVaultResourceId"          :     "${azurerm_key_vault.kv.id}",
-#   "KeyEncryptionAlgorithm"      :     "RSA-OAEP",
-#   "VolumeType"                  :     "All"
-#   }
-#   SETTINGS
-#   depends_on = [azurerm_linux_virtual_machine.vm]
-# }
-#
-# resource "azurerm_recovery_services_vault" "example" {
-#   name                = "${var.project_name}-vault"
-#   resource_group_name = azurerm_resource_group.rg.name
-#   location            = azurerm_resource_group.rg.location
-#   sku                 = "Standard"
-#   soft_delete_enabled = var.soft_delete_enabled
-# }
-#
-# resource "azurerm_backup_policy_vm" "example" {
-#   name                = "${var.project_name}-policy"
-#   resource_group_name = azurerm_resource_group.rg.name
-#   recovery_vault_name = azurerm_recovery_services_vault.example.name
-#   backup {
-#     frequency = "Daily"
-#     time      = "23:00"
-#   }
-#   retention_daily {
-#     count = 7
-#   }
-# }
-#
-# resource "azurerm_backup_protected_vm" "example" {
-#   resource_group_name = azurerm_resource_group.rg.name
-#   recovery_vault_name = azurerm_recovery_services_vault.example.name
-#   source_vm_id        = azurerm_linux_virtual_machine.vm.id
-#   backup_policy_id    = azurerm_backup_policy_vm.example.id
-# }
+resource "azurerm_virtual_machine_extension" "linux-ade" {
+  name                       = "AzureDiskEncryption"
+  virtual_machine_id         = azurerm_linux_virtual_machine.vm.id
+  publisher                  = "Microsoft.Azure.Security"
+  type                       = "AzureDiskEncryptionForLinux"
+  type_handler_version       = "1.1"
+  auto_upgrade_minor_version = true
+
+  settings   = <<SETTINGS
+  {
+  "EncryptionOperation"         :     "EnableEncryption",
+  "KeyVaultURL"                 :     "${azurerm_key_vault.kv.vault_uri}",
+  "KeyVaultResourceId"          :     "${azurerm_key_vault.kv.id}",
+  "KeyEncryptionKeyURL"         :     "${azurerm_key_vault_key.kv.id}",
+  "KekVaultResourceId"          :     "${azurerm_key_vault.kv.id}",
+  "KeyEncryptionAlgorithm"      :     "RSA-OAEP",
+  "VolumeType"                  :     "All"
+  }
+  SETTINGS
+  depends_on = [azurerm_linux_virtual_machine.vm]
+}
+
+resource "azurerm_recovery_services_vault" "example" {
+  name                = "${var.project_name}-vault"
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  sku                 = "Standard"
+  soft_delete_enabled = var.soft_delete_enabled
+}
+
+resource "azurerm_backup_policy_vm" "example" {
+  name                = "${var.project_name}-policy"
+  resource_group_name = azurerm_resource_group.rg.name
+  recovery_vault_name = azurerm_recovery_services_vault.example.name
+  backup {
+    frequency = "Daily"
+    time      = "23:00"
+  }
+  retention_daily {
+    count = 7
+  }
+}
+
+resource "azurerm_backup_protected_vm" "example" {
+  resource_group_name = azurerm_resource_group.rg.name
+  recovery_vault_name = azurerm_recovery_services_vault.example.name
+  source_vm_id        = azurerm_linux_virtual_machine.vm.id
+  backup_policy_id    = azurerm_backup_policy_vm.example.id
+}
