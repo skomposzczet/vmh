@@ -37,15 +37,6 @@ resource "azurerm_public_ip" "firewall_public_ip" {
   sku                 = "Standard"
 }
 
-# Public IPs
-resource "azurerm_public_ip" "vm_public_ip" {
-  name                = "${var.project_name}-public-ip"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-  allocation_method   = "Static"
-  sku                 = "Standard"
-}
-
 # Active User Ip
 data "http" "user_ip" {
   url = "https://api.ipify.org/"
@@ -96,26 +87,6 @@ resource "azurerm_firewall_policy_rule_collection_group" "region1-policy1" {
   priority           = 100
 
   application_rule_collection {
-    name     = "blocked_websites1"
-    priority = 500
-    action   = "Deny"
-    rule {
-      name = "dodgy_website"
-      protocols {
-        type = "Http"
-        port = 80
-      }
-      protocols {
-        type = "Https"
-        port = 443
-      }
-      source_addresses  = ["*"]
-      destination_fqdns = ["*"]
-    }
-  }
-
-
-  application_rule_collection {
     name     = "allowed_websites"
     priority = 200
     action   = "Allow"
@@ -136,13 +107,29 @@ resource "azurerm_firewall_policy_rule_collection_group" "region1-policy1" {
       }
     }
   }
+
+  nat_rule_collection {
+    name     = "AllowSSH"
+    priority = 100
+    action   = "Dnat"
+    rule {
+      name = "AllowSSH"
+      # source_addresses      = ["89.78.230.109"]
+      source_addresses    = ["*"]
+      protocols           = ["TCP"]
+      destination_ports   = ["22"]
+      destination_address = azurerm_public_ip.firewall_public_ip.ip_address
+      translated_port     = 22
+      translated_address  = azurerm_network_interface.my_terraform_nic.private_ip_address
+    }
+  }
 }
 #Azure Firewall Instance
 resource "azurerm_firewall" "region1-fw01" {
   name                = "region1-fw01"
   location            = var.resource_group_location
   resource_group_name = azurerm_resource_group.rg.name
-  sku_tier            = "Premium"
+  sku_tier            = "Standard"
   sku_name            = "AZFW_VNet"
   firewall_policy_id  = azurerm_firewall_policy.region1-fw-pol01.id
   ip_configuration {
@@ -158,7 +145,7 @@ resource "azurerm_route_table" "rt" {
   resource_group_name = azurerm_resource_group.rg.name
   route {
     name                   = "rout1"
-    address_prefix          = "0.0.0.0/0"
+    address_prefix         = "0.0.0.0/0"
     next_hop_type          = "VirtualAppliance"
     next_hop_in_ip_address = azurerm_firewall.region1-fw01.ip_configuration[0].private_ip_address
   }
@@ -188,7 +175,7 @@ resource "azurerm_network_interface" "my_terraform_nic" {
   ip_configuration {
     name                          = "my_nic_configuration"
     subnet_id                     = azurerm_subnet.subnet_vm.id
-    private_ip_address_allocation = "Dynamic"
+    private_ip_address_allocation = "Static"
     public_ip_address_id          = azurerm_public_ip.nic_public_ip.id
   }
 }
