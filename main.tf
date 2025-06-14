@@ -47,6 +47,14 @@ resource "azurerm_public_ip" "jump_public_ip" {
   sku                 = "Standard"
 }
 
+resource "azurerm_public_ip" "vm_public_ip" {
+  name                = "${var.project_name}-public-ip-vm"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+}
+
 data "http" "user_ip" {
   url = "https://api.ipify.org/"
 }
@@ -60,7 +68,7 @@ resource "azurerm_network_interface" "vm_nic" {
     name                          = "my_nic_configuration"
     subnet_id                     = azurerm_subnet.subnet_vm.id
     private_ip_address_allocation = "Dynamic"
-    # public_ip_address_id          = azurerm_public_ip.nic_public_ip.id
+    public_ip_address_id          = azurerm_public_ip.vm_public_ip.id
   }
 }
 
