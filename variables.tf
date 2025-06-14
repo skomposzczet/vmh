@@ -17,11 +17,6 @@ variable "project_name" {
   description = "General project name."
 }
 
-locals {
-  kv_key_permissions    = ["Create", "Delete", "Get", "List", "Import", "Encrypt", "Decrypt", "Recover", "WrapKey", "UnwrapKey", "Verify", "Sign", "Restore", "Purge", "Update", "Backup", ]
-  kv_secret_permissions = ["Backup", "Delete", "Get", "List", "Purge", "Recover", "Restore", "Set", ]
-}
-
 variable "allowed_sites" {
   type = list(object({
     name = string
@@ -34,4 +29,16 @@ variable "allowed_sites" {
       ip   = "janpawel2.pl"
     }
   ]
+}
+
+variable "username" {
+  type = string
+  default = "azureuser"
+  description = "Admin username for VMs"
+}
+
+variable "key_location" {
+  type = string
+  default = "./.ssh/vm1"
+  description = "Location for ssh key"
 }

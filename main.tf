@@ -198,7 +198,7 @@ resource "azurerm_firewall_policy_rule_collection_group" "region1-policy1" {
     action   = "Dnat"
     rule {
       name = "AllowSSH"
-      source_addresses    = ["108.142.232.35"]
+      source_addresses    = [azurerm_public_ip.jump_public_ip.ip_address]
       protocols           = ["TCP"]
       destination_ports   = ["22"]
       destination_address = azurerm_public_ip.firewall_public_ip.ip_address
@@ -358,8 +358,7 @@ resource "azurerm_linux_virtual_machine" "jump" {
   size                            = "Standard_D2s_v3"
   computer_name                   = "linux-vm"
   admin_username                  = "azureuser"
-  admin_password = "Admin1!"
-  disable_password_authentication = false
+  disable_password_authentication = true
   allow_extension_operations      = true
 
   admin_ssh_key {
